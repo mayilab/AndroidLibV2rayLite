@@ -7,7 +7,7 @@ import (
 type Status struct {
 	IsRunning   bool
 	PackageName string
-
+	SockPath string
 	Vpoint v2core.Server
 }
 
@@ -19,8 +19,8 @@ func (v *Status) GetDataDir() string {
 	return v.PackageName
 }
 
-func (v *Status) GetApp(name string) string {
-	return v.PackageName + name
+func (v *Status) GetApp() string {
+	return v.SockPath
 }
 
 func (v *Status) GetTun2socksArgs(localDNS bool, enableIPv6 bool) (ret []string) {
@@ -36,7 +36,7 @@ func (v *Status) GetTun2socksArgs(localDNS bool, enableIPv6 bool) (ret []string)
 		"notice",
 		"--enable-udprelay",
 		"--sock-path",
-		v.GetDataDir() + "sock_path",
+		v.GetApp(),
 	}
 
 	if enableIPv6 {
