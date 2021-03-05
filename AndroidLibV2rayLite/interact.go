@@ -1,3 +1,4 @@
+
 package libv2ray
 
 import (
@@ -11,7 +12,6 @@ import (
 	"AndroidLibV2rayLite/CoreI"
 	"AndroidLibV2rayLite/Process/Escort"
 	"AndroidLibV2rayLite/VPN"
-	"AndroidLibV2rayLite/shippedBinarys"
 	mobasset "golang.org/x/mobile/asset"
 
 	v2core "v2ray.com/core"
@@ -44,6 +44,7 @@ type V2RayPoint struct {
 	closeChan chan struct{}
 
 	PackageName          string
+	SockPath 			 string
 	DomainName           string
 	ConfigureFileContent string
 	EnableLocalDNS       bool
@@ -58,6 +59,7 @@ type V2RayVPNServiceSupportsSet interface {
 	Protect(int) int
 	OnEmitStatus(int, string) int
 	SendFd() int
+	//Tun2socks() int
 }
 
 /*RunLoop Run V2Ray main loop
@@ -67,11 +69,14 @@ func (v *V2RayPoint) RunLoop() (err error) {
 	defer v.v2rayOP.Unlock()
 	//Construct Context
 	v.status.PackageName = v.PackageName
-
+	v.status.SockPath = v.SockPath
 	if !v.status.IsRunning {
 		v.closeChan = make(chan struct{})
 		v.dialer.PrepareResolveChan()
-		go v.dialer.PrepareDomain(v.DomainName, v.closeChan)
+		go func() {
+			v.dialer.PrepareDomain(v.DomainName, v.closeChan)
+			close(v.dialer.ResolveChan())
+		}()
 		go func() {
 			select {
 			// wait until resolved
@@ -116,7 +121,7 @@ func (v V2RayPoint) QueryStats(tag string, direct string) int64 {
 	if v.statsManager == nil {
 		return 0
 	}
-	counter := v.statsManager.GetCounter(fmt.Sprintf("inbound>>>%s>>>traffic>>>%s", tag, direct))
+	counter := v.statsManager.GetCounter(fmt.Sprintf("outbound>>>%s>>>traffic>>>%s", tag, direct))
 	if counter == nil {
 		return 0
 	}
@@ -136,6 +141,11 @@ func (v *V2RayPoint) pointloop() error {
 		log.Println(err)
 		return err
 	}
+	//status:=v.SupportSet.Tun2socks()
+	//if(status==-1){
+	//	log.Println("Tun2socks error")
+	//		return nil
+	//}
 
 	log.Printf("EnableLocalDNS: %v\nForwardIpv6: %v\nDomainName: %s",
 		v.EnableLocalDNS,
@@ -224,16 +234,11 @@ func NewV2RayPoint(s V2RayVPNServiceSupportsSet) *V2RayPoint {
 	}
 }
 
-func (v V2RayPoint) runTun2socks() error {
-	shipb := shippedBinarys.FirstRun{Status: v.status}
-	if err := shipb.CheckAndExport(); err != nil {
-		log.Println(err)
-		return err
-	}
 
+func (v V2RayPoint) runTun2socks() error {
 	v.escorter.EscortingUp()
 	go v.escorter.EscortRun(
-		v.status.GetApp("tun2socks"),
+		v.status.GetDataDir(),
 		v.status.GetTun2socksArgs(v.EnableLocalDNS, v.ForwardIpv6), "",
 		v.SupportSet.SendFd)
 
