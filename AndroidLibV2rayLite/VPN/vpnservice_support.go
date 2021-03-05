@@ -24,6 +24,7 @@ type resolved struct {
 	domain       string
 	IPs          []net.IP
 	Port         int
+	lastResolved time.Time
 	ipIdx        uint8
 	ipLock       sync.Mutex
 	lastSwitched time.Time
@@ -56,8 +57,7 @@ func (r *resolved) NextIP() {
 		r.ipIdx = 0
 	}
 
-	cur := r.currentIP()
-	log.Printf("switched to next IP: %s", cur)
+	log.Printf("switched to next IP")
 }
 
 func (r *resolved) currentIP() net.IP {
@@ -97,7 +97,7 @@ func (d *ProtectedDialer) PrepareResolveChan() {
 	d.resolveChan = make(chan struct{})
 }
 
-func (d *ProtectedDialer) ResolveChan() <-chan struct{} {
+func (d *ProtectedDialer) ResolveChan() chan struct{} {
 	return d.resolveChan
 }
 
@@ -137,9 +137,10 @@ func (d *ProtectedDialer) lookupAddr(addr string) (*resolved, error) {
 	}
 
 	rs := &resolved{
-		domain: host,
-		IPs:    IPs,
-		Port:   portnum,
+		domain:       host,
+		IPs:          IPs,
+		Port:         portnum,
+		lastResolved: time.Now(),
 	}
 
 	return rs, nil
@@ -150,7 +151,6 @@ func (d *ProtectedDialer) PrepareDomain(domainName string, closeCh <-chan struct
 	log.Printf("Preparing Domain: %s", domainName)
 	d.currentServer = domainName
 
-	defer close(d.resolveChan)
 	maxRetry := 10
 	for {
 		if maxRetry == 0 {
@@ -172,8 +172,8 @@ func (d *ProtectedDialer) PrepareDomain(domainName string, closeCh <-chan struct
 		}
 
 		d.vServer = resolved
-		log.Printf("Prepare Result:\n Domain: %s\n Port: %d\n IPs: %v\n",
-			resolved.domain, resolved.Port, resolved.IPs)
+		//log.Printf("Prepare Result:\n Domain: %s\n Port: %d\n IPs: %v\n",
+		//	resolved.domain, resolved.Port, resolved.IPs)
 		return
 	}
 }
@@ -212,6 +212,10 @@ func (d *ProtectedDialer) Dial(ctx context.Context,
 			}
 		}
 
+		if time.Now().Sub(d.vServer.lastResolved) > time.Minute * 30 {
+			d.PrepareDomain(Address, nil)
+		}
+
 		fd, err := d.getFd(dest.Network)
 		if err != nil {
 			return nil, err
@@ -228,7 +232,7 @@ func (d *ProtectedDialer) Dial(ctx context.Context,
 	}
 
 	// v2ray connecting to "domestic" servers, no caching results
-	log.Printf("Not Using Prepared: %s,%s", network, Address)
+	//log.Printf("Not Using Prepared: %s,%s", network, Address)
 	resolved, err := d.lookupAddr(Address)
 	if err != nil {
 		return nil, err
